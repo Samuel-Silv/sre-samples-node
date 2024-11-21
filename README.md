@@ -113,6 +113,9 @@ Ajustar configurações de timeout e corrigir erro de timeout execedido ao invoc
 ```
 // INSIRA SUA ANÁLISE OU PARECER ABAIXO
 
+//Ao aumentar o limite para 5 segundos. Obteremos a correção do problema
+const result = await timeoutPromise(5000, externalService());
+obs: 5000 milissegundos é igual 5 segundos
 
 
 ```
@@ -180,6 +183,52 @@ Alterar limite de requisições permitidas para 100 num intervalo de 1 minuto e 
 ```
 // INSIRA SUA ANÁLISE OU PARECER ABAIXO
 
+const express = require('express');
+const rateLimit = require('express-rate-limit');
+
+const app = express();
+const port = 8080;
+
+const limiter = rateLimit({
+    windowMs: 60 * 1000,  
+    max: 100,  
+    message: 'Você excedeu o limite de requisições, tente novamente mais tarde.',
+});
+
+app.use(limiter);
+
+async function externalService() {
+    return 'Resposta da chamada externa';
+}
+
+app.get('/api/ratelimit', async (req, res) => {
+    try {
+        const result = await externalService();
+        res.send(result);
+    } catch (error) {
+        res.status(500).send(`Erro: ${error.message}`);
+    }
+});
+
+async function simulateRateLimit() {
+    const axios = require('axios'); 
+
+    console.log('Iniciando requisições...');
+    for (let i = 1; i <= 105; i++) { 
+        try {
+            const response = await axios.get(`http://localhost:${port}/api/ratelimit`);
+            console.log(`Requisição ${i}: ${response.data}`);
+        } catch (error) {
+            console.error(`Requisição ${i}: ${error.response.data}`);
+        }
+    }
+    console.log('Simulação concluída.');
+}
+
+app.listen(port, () => {
+    console.log(`Servidor rodando em http://localhost:${port}`);
+    simulateRateLimit(); 
+});
 
 
 ```
@@ -246,6 +295,51 @@ Aumentar quantidade de chamadas simultâneas e avaliar o comportamento.
 
 ```
 // INSIRA SUA ANÁLISE OU PARECER ABAIXO
+
+const express = require('express');
+const { bulkhead } = require('cockatiel');
+
+const app = express();
+const port = 8080;
+
+const bulkheadPolicy = bulkhead(5);
+
+async function externalService() {
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve('Resposta da chamada externa');
+        }, 2000);
+    });
+}
+
+app.get('/api/bulkhead', async (req, res) => {
+    try {
+        const result = await bulkheadPolicy.execute(() => externalService());
+        res.send(result);
+    } catch (error) {
+        res.status(500).send(`Erro: ${error.message}`);
+    }
+});
+
+async function simulateBulkhead() {
+    const axios = require('axios');
+    console.log('Iniciando requisições simultâneas...');
+    const requests = [];
+    for (let i = 1; i <= 10; i++) {
+        requests.push(
+            axios.get(`http://localhost:${port}/api/bulkhead`)
+                .then((response) => console.log(`Requisição ${i}: ${response.data}`))
+                .catch((error) => console.error(`Requisição ${i}: ${error.response.data}`))
+        );
+    }
+    await Promise.all(requests);
+    console.log('Simulação concluída.');
+}
+
+app.listen(port, () => {
+    console.log(`Servidor rodando em http://localhost:${port}`);
+    simulateBulkhead();
+});
 
 
 
@@ -327,6 +421,52 @@ Observar comportamento do circuito no console.
 
 ```
 // INSIRA SUA ANÁLISE OU PARECER ABAIXO
+
+const express = require('express');
+const CircuitBreaker = require('opossum');
+
+const app = express();
+const port = 8080;
+
+async function externalService() {
+    return new Promise((resolve, reject) => {
+        setTimeout(() => {
+            const shouldFail = Math.random() > 0.2;  // 20% de falha
+            if (shouldFail) {
+                reject(new Error('Falha na chamada externa'));
+            } else {
+                resolve('Resposta da chamada externa');
+            }
+        }, 2000);
+    });
+}
+
+const breaker = new CircuitBreaker(externalService, {
+    timeout: 3000,
+    errorThresholdPercentage: 20,  // Circuito mais sensível
+    resetTimeout: 10000,
+});
+
+breaker.fallback(() => 'Resposta do fallback...');
+breaker.on('open', () => console.log('Circuito aberto!'));
+breaker.on('halfOpen', () => console.log('Circuito meio aberto, testando...'));
+breaker.on('close', () => console.log('Circuito fechado novamente'));
+breaker.on('reject', () => console.log('Requisição rejeitada pelo Circuit Breaker'));
+breaker.on('failure', () => console.log('Falha registrada pelo Circuit Breaker'));
+breaker.on('success', () => console.log('Sucesso registrado pelo Circuit Breaker'));
+
+app.get('/api/circuitbreaker', async (req, res) => {
+    try {
+        const result = await breaker.fire();
+        res.send(result);
+    } catch (error) {
+        res.status(500).send(`Erro: ${error.message}`);
+    }
+});
+
+app.listen(port, () => {
+    console.log(`Servidor rodando em http://localhost:${port}`);
+});
 
 
 
